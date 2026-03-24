@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard,
-  Users,
   FileText,
   ShieldCheck,
   Bot,
@@ -17,8 +16,7 @@ import {
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',        href: '/admin',           icon: LayoutDashboard },
-  { label: 'Employees',        href: '/admin/employees', icon: Users           },
+  { label: 'Employee Dashboard', href: '/admin',          icon: LayoutDashboard },
   { label: 'Company Policies', href: '/admin/policies',  icon: FileText        },
   { label: 'Compliance Check', href: '/admin/compliance',icon: ShieldCheck     },
   { label: 'AI Assistant',     href: '/admin/ai-bot',    icon: Bot             },
