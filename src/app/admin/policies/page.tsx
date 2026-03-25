@@ -70,14 +70,15 @@ export default function PoliciesPage() {
       if (!raw) return;
       const parsed = JSON.parse(raw) as unknown;
       if (!Array.isArray(parsed)) return;
-      const normalized = (parsed as any[])
-        .filter(p => p && typeof p === 'object')
+      const normalized = (parsed as unknown[])
+        .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
         .map((p) => ({
           id: Number(p.id),
           title: String(p.title ?? ''),
           version: String(p.version ?? ''),
           dept: String(p.dept ?? 'All'),
-          status: (p.status === 'Active' || p.status === 'Pending Review' || p.status === 'Draft') ? p.status : 'Draft',
+          status:
+            (p.status === 'Active' || p.status === 'Pending Review' || p.status === 'Draft') ? p.status : 'Draft',
           updated: String(p.updated ?? ''),
           owner: String(p.owner ?? ''),
           description: typeof p.description === 'string' ? p.description : '',

@@ -12,15 +12,16 @@ export default function HeroSection() {
 
   const onLoad = useCallback((splineApp: Application) => {
     const allObjects = splineApp.getAllObjects();
-    allObjects.forEach((obj: any) => {
-      const name = obj.name.toLowerCase();
+    allObjects.forEach((obj: unknown) => {
+      const o = obj as { name?: string; type?: string; visible?: boolean };
+      const name = String(o.name ?? '').toLowerCase();
       if (
         name.includes('nexbot') ||
         name.includes('logo') ||
         name.startsWith('shape') ||
-        (name.includes('text') && obj.type === 'Text')
+        (name.includes('text') && o.type === 'Text')
       ) {
-        obj.visible = false;
+        o.visible = false;
       }
     });
     setSplineLoaded(true);

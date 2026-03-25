@@ -56,23 +56,37 @@ function categoryIcon(code: string) {
 
 function loadPoliciesFromStorage(): StoredPolicy[] {
   try {
+    if (typeof window === 'undefined') return [];
     const raw = window.localStorage.getItem(POLICY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    const normalized = (parsed as any[])
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({
-        id: Number(p.id),
-        title: String(p.title ?? ''),
-        dept: String(p.dept ?? 'All'),
-        status: (p.status === 'Active' || p.status === 'Pending Review' || p.status === 'Draft')
-          ? (p.status as PolicyStatus)
-          : 'Draft',
-        updated: String(p.updated ?? ''),
-        fileName: typeof p.fileName === 'string' ? p.fileName : undefined,
-        fileDataUrl: typeof p.fileDataUrl === 'string' ? p.fileDataUrl : undefined,
-      })) as StoredPolicy[];
+    const normalized = (parsed as unknown[])
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+      .map((p) => {
+        const id = Number((p as Record<string, unknown>).id);
+        const title = String((p as Record<string, unknown>).title ?? '');
+        const dept = String((p as Record<string, unknown>).dept ?? 'All');
+        const statusRaw = (p as Record<string, unknown>).status;
+        const updated = String((p as Record<string, unknown>).updated ?? '');
+        const fileNameRaw = (p as Record<string, unknown>).fileName;
+        const fileDataUrlRaw = (p as Record<string, unknown>).fileDataUrl;
+
+        const status: PolicyStatus =
+          statusRaw === 'Active' || statusRaw === 'Pending Review' || statusRaw === 'Draft'
+            ? (statusRaw as PolicyStatus)
+            : 'Draft';
+
+        return {
+          id,
+          title,
+          dept,
+          status,
+          updated,
+          fileName: typeof fileNameRaw === 'string' ? fileNameRaw : undefined,
+          fileDataUrl: typeof fileDataUrlRaw === 'string' ? fileDataUrlRaw : undefined,
+        };
+      });
     return normalized.filter((p) => p.id > 0 && p.title && p.updated);
   } catch {
     return [];
@@ -80,7 +94,7 @@ function loadPoliciesFromStorage(): StoredPolicy[] {
 }
 
 export default function CompliancePage() {
-  const [policies, setPolicies] = useState<StoredPolicy[]>([]);
+  const [policies, setPolicies] = useState<StoredPolicy[]>(() => loadPoliciesFromStorage());
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isRunningCheck, setIsRunningCheck] = useState(false);
   const [report, setReport] = useState<Iso27001AuditReport | null>(null);
@@ -90,7 +104,6 @@ export default function CompliancePage() {
   }, []);
 
   useEffect(() => {
-    refreshPolicies();
     const onStorage = (e: StorageEvent) => {
       if (e.key === POLICY_STORAGE_KEY) refreshPolicies();
     };
@@ -138,6 +151,23 @@ export default function CompliancePage() {
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const downloadIso27001Report = () => {
+    if (!report) return;
+    try {
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `iso27001-audit-report_${new Date(report.generatedAt).toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // no-op
+    }
   };
 
   const statCards = useMemo(() => {
@@ -370,12 +400,34 @@ export default function CompliancePage() {
             exit={{ opacity: 0 }}
             style={{ marginBottom: '24px' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <ClipboardList size={18} color="#172554" />
-              <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#172554', margin: 0 }}>ISO 27001 Audit-Style Report</h2>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', backgroundColor: '#f1f5f9', padding: '4px 10px', borderRadius: '99px' }}>
-                Mock response · schema v{report.schemaVersion}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '14px', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <ClipboardList size={18} color="#172554" />
+                <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#172554', margin: 0 }}>ISO 27001 Audit-Style Report</h2>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', backgroundColor: '#f1f5f9', padding: '4px 10px', borderRadius: '99px' }}>
+                  Mock response · schema v{report.schemaVersion}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={downloadIso27001Report}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '9px 14px',
+                  backgroundColor: '#172554',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+                title="Download full ISO 27001 report"
+              >
+                <Download size={16} /> Download Report
+              </button>
             </div>
 
             {/* A. Overview */}

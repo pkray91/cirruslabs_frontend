@@ -1,208 +1,304 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import Spline from '@splinetool/react-spline';
-import { useCallback, useState, useRef, useEffect } from 'react';
-import type { Application } from '@splinetool/runtime';
-import { Send, Shield, LogOut } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { Shield, LogOut, Send, Download, Sparkles, FileText } from 'lucide-react';
+import { findUser } from '@/lib/auth';
+import type { PolicyChatCitation, PolicyChatResponse } from '@/lib/policyMockAI';
+import { getPolicyChatAnswer, loadPoliciesForAI, type PolicyDocument } from '@/lib/policyMockAI';
 
-interface Message {
+type ChatMessage = {
   id: number;
-  role: 'user' | 'bot';
+  role: 'user' | 'assistant';
   text: string;
+  citations?: PolicyChatCitation[];
+};
+
+const EMPLOYEE_AI_SCOPE = 'active' as const;
+
+function downloadPolicyFile(policy: PolicyDocument) {
+  if (!policy.fileDataUrl) return;
+  const a = document.createElement('a');
+  a.href = policy.fileDataUrl;
+  a.download = policy.fileName || `${policy.title}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
-const BOT_RESPONSES = [
-  "I'm analyzing your compliance data now. Everything looks good!",
-  "Your AI policy report is ready. No critical violations found.",
-  "I've scanned the latest regulatory updates. I'll brief you shortly.",
-  "Access logs reviewed. All activity within normal parameters.",
-  "Compliance check complete. Your systems are fully protected.",
-];
-
 export default function EmployeeDashboard() {
-  const [splineLoaded, setSplineLoaded] = useState(false);
+  const [employeeName, setEmployeeName] = useState<string>('Employee');
+  const [activePolicies, setActivePolicies] = useState<PolicyDocument[]>([]);
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const onLoad = useCallback((splineApp: Application) => {
-    const allObjects = splineApp.getAllObjects();
-    allObjects.forEach((obj: any) => {
-      const name = obj.name.toLowerCase();
-      if (
-        name.includes('nexbot') ||
-        name.includes('logo') ||
-        name.startsWith('shape') ||
-        (name.includes('text') && obj.type === 'Text')
-      ) {
-        obj.visible = false;
-      }
-    });
-    setSplineLoaded(true);
-  }, []);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    scrollToBottom();
+    const email = window.localStorage.getItem('guard_ai_last_user_email');
+    if (email) {
+      const user = findUser(email);
+      if (user?.name) setEmployeeName(user.name);
+    }
+
+    setActivePolicies(loadPoliciesForAI().filter((p) => p.status === 'Active'));
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  const handleSend = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
+  const helloCard = useMemo(() => {
+    const initials = employeeName
+      .split(' ')
+      .map((n) => n.trim()[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('');
+    return { initials };
+  }, [employeeName]);
 
-    const userMsg: Message = { id: Date.now(), role: 'user', text: trimmed };
-    setMessages(prev => [...prev, userMsg]);
+  const sendMessage = async () => {
+    const question = input.trim();
+    if (!question || isTyping) return;
+
+    const userMsg: ChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      text: question,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const botMsg: Message = {
+    try {
+      const ai: PolicyChatResponse = await getPolicyChatAnswer({
+        question,
+        policyScope: EMPLOYEE_AI_SCOPE,
+      });
+
+      const assistantMsg: ChatMessage = {
         id: Date.now() + 1,
-        role: 'bot',
-        text: BOT_RESPONSES[Math.floor(Math.random() * BOT_RESPONSES.length)],
+        role: 'assistant',
+        text: ai.answer,
+        citations: ai.citations,
       };
-      setMessages(prev => [...prev, botMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
+    } finally {
       setIsTyping(false);
-    }, 1200);
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSend();
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') sendMessage();
   };
-
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor:  'var(--color-bg-light)', fontFamily: 'inherit' }}>
-
-      {/* ── LEFT PANEL: Spline Bot ── */}
-      <div style={{ position: 'relative', width: '45%', height: '100%', flexShrink: 0, backgroundColor: '#e8edf8', borderRight: '1px solid #c7d2fe' }}>
-
-        {/* Date / time overlay */}
-        
-
-        {/* Spline */}
-        <Spline
-          scene="https://prod.spline.design/xJQw8NjQdQUDOYlP/scene.splinecode"
-          onLoad={onLoad}
-          style={{ width: '100%', height: '100%' }}
-        />
-
-        {/* Loading overlay */}
-        <AnimatePresence>
-          {!splineLoaded && (
-            <motion.div
-              key="loader"
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.8 }}
-              style={{
-                position: 'absolute', inset: 0, zIndex: 20,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                backgroundColor:'var(--color-bg-light-end)',
-              }}
-            >
-              <motion.div
-                animate={{ scale: [1, 1.08, 1] }}
-                transition={{ duration: 1.8, repeat: Infinity }}
-                style={{ marginBottom: '20px' }}
-              >
-                <svg viewBox="0 0 80 80" fill="none" style={{ width: '52px', height: '52px' }}>
-                  <motion.path
-                    d="M40 5L8 18v20c0 18.7 13.3 36.2 32 41C57.7 74.2 72 56.7 72 38V18L40 5z"
-                    fill="none" stroke="#2563eb" strokeWidth="2.5"
-                    initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  />
-                </svg>
-              </motion.div>
-              <p className="orbitron" style={{ fontSize: '9px', letterSpacing: '0.4em', textTransform: 'uppercase', fontWeight: 900, color: '#2563eb' }}>
-                Initializing
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ── RIGHT PANEL: Chat ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#f8faff' }}>
-
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '18px 32px', borderBottom: '1px solid #c7d2fe',
+    <div style={{ minHeight: '100vh', backgroundColor: '#f8faff', display: 'flex', flexDirection: 'column' }}>
+      {/* Top bar */}
+      <div
+        style={{
           backgroundColor: 'white',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '28px', height: '28px', background: '#172554', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Shield size={15} color="white" />
-            </div>
-            <span className="orbitron" style={{ fontSize: '15px', fontWeight: 900, color: '#172554' }}>
+          borderBottom: '1px solid #c7d2fe',
+          padding: '18px 28px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 260 }}>
+          <div style={{ width: 30, height: 30, background: '#172554', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Shield size={16} color="white" />
+          </div>
+          <div>
+            <span className="orbitron" style={{ fontSize: 16, fontWeight: 900, color: '#172554' }}>
               GUARD<span style={{ color: '#2563eb' }}>AI</span>
             </span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8', marginLeft: '8px', backgroundColor: '#f1f5f9', padding: '3px 10px', borderRadius: '99px' }}>
+            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600, marginTop: 3 }}>
               Employee Portal
-            </span>
+            </div>
           </div>
-          <Link href="/login" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, color: '#475569', textDecoration: 'none' }}>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#1e293b', backgroundColor: '#eff6ff', padding: '6px 12px', borderRadius: 999, border: '1px solid #dbeafe' }}>
+            Hello, {employeeName}
+          </span>
+          <Link
+            href="/login"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              textDecoration: 'none',
+              color: '#475569',
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
             <LogOut size={15} /> Sign out
           </Link>
         </div>
+      </div>
 
-        {/* Chat area */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {messages.length === 0 && !isTyping && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: 0.4, pointerEvents: 'none' }}
-            >
-              <Shield size={36} color="#2563eb" strokeWidth={1.5} />
-              <p style={{ fontSize: '40px', color: '#172554', fontWeight: 600, textTransform: 'uppercase' }}>Ask me anything about our Policy!!</p>
-            </motion.div>
-          )}
+      <div style={{ padding: 28, display: 'grid', gap: 18, flex: 1 }} className="employee-dashboard-grid">
+        {/* Left: Active Policies */}
+        <motion.div
+          initial={{ opacity: 0, x: -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          style={{
+            backgroundColor: 'white',
+            borderRadius: 16,
+            border: '1px solid #e2e8f0',
+            overflow: 'hidden',
+            height: 'fit-content',
+          }}
+        >
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <FileText size={18} color="#2563eb" />
+            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 900, color: '#172554' }}>Active Policies</h2>
+          </div>
+          <div style={{ padding: '16px 20px' }}>
+            {activePolicies.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                No active policies found yet. Ask your admin to upload them.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {activePolicies.slice(0, 6).map((p) => (
+                  <div key={p.id} style={{ border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: 14, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 900, color: '#172554', lineHeight: 1.25 }}>{p.title}</p>
+                        <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+                          {p.dept} · {p.updated}
+                        </p>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 900, color: '#059669', backgroundColor: '#ecfdf5', padding: '6px 10px', borderRadius: 999, border: '1px solid #bbf7d0' }}>
+                        Active
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => downloadPolicyFile(p)}
+                        disabled={!p.fileDataUrl}
+                        style={{
+                          background: 'none',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 10,
+                          padding: '8px 10px',
+                          cursor: p.fileDataUrl ? 'pointer' : 'not-allowed',
+                          color: p.fileDataUrl ? '#2563eb' : '#cbd5e1',
+                          fontWeight: 900,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                        title={p.fileDataUrl ? 'Download policy file' : 'No file available'}
+                      >
+                        <Download size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
 
-          <AnimatePresence initial={false}>
-            {messages.map(msg => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                style={{
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <div style={{
-                  maxWidth: '72%',
-                  padding: '12px 16px',
-                  borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                  backgroundColor: msg.role === 'user' ? '#172554' : 'white',
-                  color: msg.role === 'user' ? 'white' : '#1e293b',
-                  fontSize: '14px', fontWeight: 500, lineHeight: 1.5,
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-                  border: msg.role === 'bot' ? '1px solid #e2e8f0' : 'none',
-                }}>
-                  {msg.role === 'bot' && (
-                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '4px' }}>
-                      GuardAI
-                    </span>
-                  )}
-                  {msg.text}
-                </div>
+        {/* Right: Chat */}
+        <motion.div
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          style={{
+            backgroundColor: 'white',
+            borderRadius: 16,
+            border: '1px solid #f1f5f9',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 560,
+          }}
+        >
+          {/* Welcome */}
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8faff' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#172554' }}>
+                  {`Hello, ${employeeName}`}
+                </h2>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#94a3b8', fontWeight: 600, lineHeight: 1.4 }}>
+                  Ask GuardAI about any active policy. Answers are mock responses based on the uploaded policy documents.
+                </p>
+              </div>
+              <div style={{ width: 44, height: 44, borderRadius: 16, backgroundColor: '#eff6ff', border: '1px solid #dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontWeight: 1000, color: '#2563eb', fontSize: 14 }}>{helloCard.initials || 'GA'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 14, backgroundColor: '#f8fafc' }}>
+            {messages.length === 0 && !isTyping && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: 0.6 }}>
+                <Shield size={38} color="#2563eb" strokeWidth={1.5} />
+                <p style={{ margin: 0, fontSize: 14, color: '#172554', fontWeight: 900, textAlign: 'center' }}>
+                  Ask a question about your policies
+                </p>
+                <p style={{ margin: 0, fontSize: 12, color: '#64748b', fontWeight: 600, textAlign: 'center' }}>
+                  Example: “How should I handle sensitive data?” or “What is the acceptable use policy?”
+                </p>
               </motion.div>
-            ))}
+            )}
+
+            <AnimatePresence initial={false}>
+              {messages.map((m) => (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}
+                >
+                  <div
+                    style={{
+                      maxWidth: '75%',
+                      padding: '12px 14px',
+                      borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      backgroundColor: m.role === 'user' ? '#172554' : 'white',
+                      color: m.role === 'user' ? 'white' : '#1e293b',
+                      border: m.role === 'assistant' ? '1px solid #e2e8f0' : 'none',
+                      boxShadow: m.role === 'assistant' ? '0 2px 10px rgba(0,0,0,0.03)' : 'none',
+                      fontSize: 14,
+                      lineHeight: 1.55,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {m.text}
+                    {m.citations && m.citations.length > 0 && m.role === 'assistant' && (
+                      <div style={{ marginTop: 10 }}>
+                        <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                          Sources
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {m.citations.slice(0, 3).map((c) => (
+                            <div key={c.policyId} style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
+                              {c.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
 
             {isTyping && (
               <motion.div
@@ -212,87 +308,87 @@ export default function EmployeeDashboard() {
                 exit={{ opacity: 0 }}
                 style={{ display: 'flex', justifyContent: 'flex-start' }}
               >
-                <div style={{ padding: '12px 18px', borderRadius: '16px 16px 16px 4px', backgroundColor: 'white', border: '1px solid #e2e8f0', display: 'flex', gap: '5px', alignItems: 'center' }}>
-                  {[0, 1, 2].map(i => (
-                    <motion.div
-                      key={i}
-                      animate={{ y: [0, -4, 0] }}
-                      transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
-                      style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#2563eb' }}
-                    />
-                  ))}
+                <div style={{ padding: '12px 14px', borderRadius: '16px 16px 16px 4px', backgroundColor: 'white', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Sparkles size={16} color="#2563eb" />
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {[0, 1, 2].map((i) => (
+                      <motion.span
+                        key={i}
+                        animate={{ y: [0, -4, 0] }}
+                        transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
+                        style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: '#94a3b8', display: 'inline-block' }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </motion.div>
             )}
-          </AnimatePresence>
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* Chat Input */}
-        <div style={{ padding: '20px 32px 28px', backgroundColor: '#f8faff' }}>
-          {/* Prompt label */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            style={{
-              textAlign: 'center', marginBottom: '12px',
-              fontSize: '13px', fontWeight: 800,
-              color: '#2563eb', letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            How can I help you?
-          </motion.p>
+            <div ref={endRef} />
+          </div>
 
-          {/* Input box */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0',
-              border: '1.5px solid #2563eb',
-              borderRadius: '8px',
-              backgroundColor: 'white',
-              overflow: 'hidden',
-              boxShadow: '0 2px 12px rgba(37,99,235,0.08)',
-            }}
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your message…"
+          {/* Input */}
+          <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', backgroundColor: '#f8faff' }}>
+            <div
               style={{
-                flex: 1, padding: '14px 18px',
-                border: 'none', outline: 'none',
-                fontSize: '14px', fontWeight: 500,
-                color: '#1e293b', backgroundColor: 'transparent',
-              }}
-            />
-            <motion.button
-              whileHover={{ backgroundColor: '#1d4ed8' }}
-              whileTap={{ scale: 0.93 }}
-              onClick={handleSend}
-              style={{
-                width: '52px', height: '52px', flexShrink: 0,
-                backgroundColor: '#2563eb', border: 'none',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                border: '1.5px solid #2563eb',
+                borderRadius: 12,
+                backgroundColor: 'white',
+                padding: '10px 12px',
               }}
             >
-              {/* Triangle / send icon */}
-              <Send size={18} color="white" strokeWidth={2.5} />
-            </motion.button>
-          </motion.div>
-          <p style={{ textAlign: 'center', fontSize: '10px', color: '#cbd5e1', marginTop: '10px', fontWeight: 500 }}>
-            GuardAI may produce inaccurate compliance information. Always verify with your team.
-          </p>
-        </div>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="Ask about policies…"
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: '#1e293b',
+                }}
+              />
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={sendMessage}
+                disabled={!input.trim() || isTyping}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  border: 'none',
+                  backgroundColor: !input.trim() || isTyping ? '#64748b' : '#2563eb',
+                  cursor: !input.trim() || isTyping ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Send message"
+              >
+                <Send size={18} color="white" strokeWidth={2.5} />
+              </motion.button>
+            </div>
+            <p style={{ textAlign: 'center', fontSize: 11, color: '#cbd5e1', marginTop: 10, fontWeight: 600 }}>
+              GuardAI may produce inaccurate information. Always verify with your team.
+            </p>
+          </div>
+        </motion.div>
       </div>
+      <style jsx global>{`
+        @media (max-width: 980px) {
+          .employee-dashboard-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
+

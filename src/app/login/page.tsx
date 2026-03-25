@@ -53,8 +53,11 @@ export default function LoginPage() {
 
     // Credentials match — route based on user type
     if (userType === 'admin') {
+      window.localStorage.setItem('guard_ai_last_user_type', 'admin');
       router.push('/admin');
     } else if (userType === 'employee') {
+      window.localStorage.setItem('guard_ai_last_user_type', 'employee');
+      window.localStorage.setItem('guard_ai_last_user_email', email.trim());
       router.push('/employee');
     } else {
       router.push('/');
